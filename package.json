@@ -1,0 +1,48 @@
+{
+  "name": "ptitch-perfect",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "prepare": "husky",
+    "prettier": "prettier --write --ignore-unknown .",
+    "prettier:check": "prettier --check --ignore-unknown ."
+  },
+  "dependencies": {
+    "@next/third-parties": "^14.2.13",
+    "axios": "^1.7.4",
+    "clsx": "^2.1.1",
+    "next": "^14.2.5",
+    "pitchy": "^4.1.0",
+    "ptitch-perfect": "file:",
+    "react": "^18",
+    "react-dom": "^18",
+    "react-use-pagination": "^2.0.1",
+    "tailwind-merge": "^2.5.5",
+    "use-breakpoint": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.5",
+    "eslint-config-prettier": "^9.1.0",
+    "husky": "^9.1.5",
+    "postcss": "^8",
+    "prettier": "^3.3.3",
+    "prettier-plugin-tailwindcss": "^0.6.5",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write",
+      "git add"
+    ]
+  }
+}
