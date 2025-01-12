@@ -17,14 +17,15 @@ interface GameState {
     velocity: number
     width: number
     height: number
+    gravityEnabled: boolean
   }
   pipes: Pipe[]
   score: number
   frameCount: number
 }
 
-const BIRD_WIDTH = 40
-const BIRD_HEIGHT = 40
+const BIRD_WIDTH = 80
+const BIRD_HEIGHT = 80
 const PIPE_WIDTH = 60
 const GRAVITY = 0.5
 const JUMP_FORCE = 5
@@ -32,35 +33,44 @@ const INITIAL_GAME_SPEED = 3
 const PIPE_GAP = 100;
 const GROUND_HEIGHT = 2;
 const PIPE_SPACING = 800;
+const SAFE_GROUND_MARGIN = 3; // Pixels above ground where bird stops falling
 
-// First, define the pipe heights with equal intervals
-const PIPE_HEIGHTS = [
-  45,
-  98,    // 45 + 53
-  151,    // 45 + (53 * 2)
-  204,    // 45 + (53 * 3)
-  257,    // 45 + (53 * 4)
-  310,    // 45 + (53 * 5)
-  363,    // 45 + (53 * 6)
-  416     // Highest
+// Define songs using pipe heights that correspond to notes
+const KUZA_PAZI = [
+  257, 257, 257, 257,  // Fa Fa Fa Fa
+  204, 204, 204, 204,  // Sol Sol Sol Sol
+  151, 151, 204, 204,  // La La Sol Sol
+  257, 257, 257,       // Fa Fa Fa
+  257, 257, 257, 257,  // Fa Fa Fa Fa (repeat)
+  204, 204, 204, 204,  // Sol Sol Sol Sol
+  151, 151, 204, 204,  // La La Sol Sol
+  257, 257, 257        // Fa Fa Fa
 ];
 
-// Increase pipe spacing significantly more
- // Increased from 500 to ensure max 2 pipes on screen
+const MARKO_SKACE = [
+  310, 204, 204, 204,  // Mi Sol Sol Sol
+  310, 204, 204, 204,  // Mi Sol Sol Sol
+  310, 310, 363, 363,  // Mi Mi Re Re
+  416, 416,            // Do Do
+  416, 363, 310, 204,  // Do Re Mi Sol
+  204, 204, 310, 310,  // Sol Sol Mi Mi
+  363, 363, 416, 416   // Re Re Do Do
+];
 
-// First, define the initial state type and values at the component level
-const createInitialState = (): GameState => ({
-  bird: {
-    x: 100,
-    y: 250,
-    velocity: 0,
-    width: BIRD_WIDTH,
-    height: BIRD_HEIGHT
-  },
-  pipes: [],
-  score: 0,
-  frameCount: 0
-});
+const CUK_SE_JE_OZENIL = [
+  310, 257, 204, 151,  // Mi Fa Sol La
+  98, 98, 45, 45,      // Si Si Do4 Do4
+  98, 45, 45, 98,      // Si Do4 Do4 Si
+  151, 151, 151, 151,  // La La La La
+  204, 204, 257, 257,  // Sol Sol Fa Fa
+  98, 151, 151, 151, 151,  // Si La La La La
+  204, 204, 257, 257,  // Sol Sol Fa Fa
+  310                   // Mi
+];
+
+// Combine all songs into one array
+const ALL_SONGS = [...KUZA_PAZI, ...MARKO_SKACE, ...CUK_SE_JE_OZENIL];
+let currentNoteIndex = 0;
 
 interface PtitchPerfectProps {
   currentPitch: number | null;
@@ -78,6 +88,8 @@ const NOTE_LINES = [
   { note: 'Re3', freq: 146.83, color: '#9B59B6', height: 363 + 50 },
   { note: 'Do3', freq: 130.81, color: '#E74C3C', height: 416 + 50 },
 ];
+
+const PIPE_HEIGHTS = [416, 363, 310, 257, 204, 151, 98, 45];
 
 const freqToY = (freq: number, canvasHeight: number): number => {
   // Find the matching note line
@@ -106,12 +118,28 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
   
   const [gameStarted, setGameStarted] = useState(false)
   const [gameOver, setGameOver] = useState(false)
+  const [victory, setVictory] = useState(false);
   const [score, setScore] = useState(0)
   const [imagesLoaded, setImagesLoaded] = useState(false)
   const [gameSpeed, setGameSpeed] = useState(INITIAL_GAME_SPEED)
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioBuffers = useRef<{ [key: string]: AudioBuffer }>({});
+  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   // Initialize the game state ref with the initial state
-  const gameStateRef = useRef<GameState>(createInitialState());
+  const gameStateRef = useRef<GameState>({
+    bird: {
+      x: 100,
+      y: 250,
+      velocity: 0,
+      width: BIRD_WIDTH,
+      height: BIRD_HEIGHT,
+      gravityEnabled: true
+    },
+    pipes: [],
+    score: 0,
+    frameCount: 0
+  });
 
   // Add a counter for tracking the number of pipes generated
   const pipeCountRef = useRef(0);
@@ -139,17 +167,30 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
     pipeImageRef.current.onload = handleImageLoad
     backgroundImageRef.current.onload = handleImageLoad
 
-    birdImageRef.current.src = 'assets/images/bird.png'
-    pipeImageRef.current.src = 'assets/images/pipe.png'
-    backgroundImageRef.current.src = 'assets/images/background.png'
+    birdImageRef.current.src = 'assets/images/Bird2.png'
+    pipeImageRef.current.src = 'assets/images/Note.png'
+    backgroundImageRef.current.src = 'assets/images/scale.png'
   }, [])
 
   const resetGame = useCallback(() => {
-    gameStateRef.current = createInitialState();
+    gameStateRef.current = {
+      bird: {
+        x: 100,
+        y: 250,
+        velocity: 0,
+        width: BIRD_WIDTH,
+        height: BIRD_HEIGHT,
+        gravityEnabled: true
+      },
+      pipes: [],
+      score: 0,
+      frameCount: 0
+    };
     gameOverRef.current = false;
     pipeCountRef.current = 0; // Reset pipe counter
     setScore(0);
     setGameOver(false);
+    setVictory(false);
     setGameStarted(false);
     setGameSpeed(INITIAL_GAME_SPEED);
   }, []);
@@ -157,16 +198,22 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
   useEffect(() => {
     if (micStarted && !gameStarted && !gameOver) {
       setGameStarted(true);
+      // Resume AudioContext after user interaction
+      if (audioContextRef.current?.state === 'suspended') {
+        audioContextRef.current.resume().catch(error => {
+          console.error('Failed to resume AudioContext:', error);
+        });
+      }
     } else if (!micStarted && gameStarted) {
       // Optionally reset the game when mic stops
       setGameStarted(false);
       resetGame();
     }
-  }, [micStarted, gameStarted, gameOver,resetGame]);
+  }, [micStarted, gameStarted, gameOver, resetGame]);
 
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      if (!gameStarted || gameOver) return;
+      if (!gameStarted || gameOver || victory) return;
       
       const state = gameStateRef.current;
       switch (e.code) {
@@ -180,7 +227,7 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
           );
           break;
         case 'KeyR':
-          if (gameOver) {
+          if (gameOver || victory) {
             resetGame();
           }
           break;
@@ -189,21 +236,21 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
 
     document.addEventListener('keydown', handleKeyPress);
     return () => document.removeEventListener('keydown', handleKeyPress);
-  }, [gameStarted, gameOver, resetGame]);
+  }, [gameStarted, gameOver, victory, resetGame]);
 
   useEffect(() => {
     const handleSpaceBar = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && !gameStarted && !gameOver) {
+      if (e.code === 'Space' && !gameStarted && !gameOver && !victory) {
         setGameStarted(true);
       }
     };
 
     document.addEventListener('keydown', handleSpaceBar);
     return () => document.removeEventListener('keydown', handleSpaceBar);
-  }, [gameStarted, gameOver]);
+  }, [gameStarted, gameOver, victory]);
 
   useEffect(() => {
-    if (!gameStarted || gameOver || !currentPitch || !canvasRef.current) return;
+    if (!gameStarted || gameOver || victory || !currentPitch || !canvasRef.current) return;
 
     const state = gameStateRef.current;
     const canvas = canvasRef.current;
@@ -222,7 +269,13 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
       newY
     ));
 
-  }, [currentPitch, gameStarted, gameOver]);
+    // If gravity is enabled and this is first pitch after pipe, disable gravity
+    if (state.bird.gravityEnabled) {
+      state.bird.velocity = 0;
+      state.bird.gravityEnabled = false;
+    }
+
+  }, [currentPitch, gameStarted, gameOver, victory]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -230,6 +283,8 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    let animationFrameId: number;
 
     const gameLoop = () => {
       const state = gameStateRef.current;
@@ -244,12 +299,12 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
       NOTE_LINES.forEach(({ freq, color }) => {
         const y = freqToY(freq, canvas.height);
         
-        // Draw horizontal guide line
+        // Draw solid line across entire canvas
         ctx.beginPath();
-        ctx.setLineDash([5, 5]);
-        ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.2;
-        ctx.lineWidth = 1;
+        ctx.setLineDash([]);
+        ctx.strokeStyle = 'black';
+        ctx.globalAlpha = 0.8;
+        ctx.lineWidth = 2;
         ctx.moveTo(0, y);
         ctx.lineTo(canvas.width, y);
         ctx.stroke();
@@ -259,25 +314,44 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
 
-      // If game over, draw final frame and stop
-      if (gameOver) {
-        // Draw pipes in their final positions
+      // If game over or victory, draw final frame and stop
+      if (gameOver || victory) {
+        // Draw final state of pipes and bird
         state.pipes.forEach(pipe => {
-          if (pipeImageRef.current) {
+          if (pipeImageRef.current && canvas) {
+            const aspectRatio = pipeImageRef.current.width / pipeImageRef.current.height;
+            const desiredHeight = pipe.width / aspectRatio;
+
+            // Draw bottom pipe normally
             ctx.drawImage(
               pipeImageRef.current,
-              pipe.x,
-              0,
-              pipe.width,
-              pipe.topHeight
+              0,                           // sourceX
+              0,                           // sourceY
+              pipeImageRef.current.width,  // sourceWidth
+              pipeImageRef.current.height * 0.7, // only use top 70%
+              pipe.x,                      // destX
+              pipe.topHeight + pipe.gap,   // destY
+              pipe.width,                  // destWidth
+              desiredHeight               // maintain aspect ratio
             );
+
+            // Draw top pipe with rotation and mirroring
+            ctx.save();
+            ctx.translate(pipe.x + pipe.width/2, pipe.topHeight/2);
+            ctx.rotate(Math.PI);
+            ctx.scale(-1, 1);
             ctx.drawImage(
               pipeImageRef.current,
-              pipe.x,
-              pipe.topHeight + pipe.gap,
-              pipe.width,
-              canvas.height - (pipe.topHeight + pipe.gap)
+              0,                           // sourceX
+              0,                           // sourceY
+              pipeImageRef.current.width,  // sourceWidth
+              pipeImageRef.current.height * 0.7, // only use top 70%
+              -pipe.width/2,              // destX
+              -pipe.topHeight/2,          // destY
+              pipe.width,                 // destWidth
+              desiredHeight              // maintain aspect ratio
             );
+            ctx.restore();
           }
         });
 
@@ -288,7 +362,6 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
             state.bird.x + state.bird.width / 2,
             state.bird.y + state.bird.height / 2
           );
-          ctx.rotate(state.bird.velocity * 0.02);
           ctx.drawImage(
             birdImageRef.current,
             -state.bird.width / 2,
@@ -298,8 +371,6 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
           );
           ctx.restore();
         }
-        
-        // Don't request next frame - stop the game loop
         return;
       }
 
@@ -314,11 +385,11 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
             BIRD_HEIGHT
           );
         }
-        requestAnimationFrame(gameLoop);
+        animationFrameId = requestAnimationFrame(gameLoop);
         return;
       }
 
-      // Generate new pipes based on the last pipe's position
+      // Generate new pipes based on the song patterns
       const lastPipe = state.pipes[state.pipes.length - 1];
       if (!canvasRef.current) return;
       if (!lastPipe || lastPipe.x < canvasRef.current.width - PIPE_SPACING) {
@@ -328,6 +399,20 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
       // Update and draw pipes
       state.pipes = state.pipes.filter(pipe => {
         pipe.x -= gameSpeed;
+
+        // Check if pipe is at 3/4 of canvas width and play corresponding note
+        const canvas = canvasRef.current;
+        if (canvas) {
+          // Check pipe's position relative to canvas width
+          if (pipe.x == 8.7*canvas.width / 10) {
+            console.log('Pipe position:', pipe.x, 'Target position:', canvas.width / 4);
+            // Find the note line closest to the pipe's top height
+            const closestNote = NOTE_LINES.reduce((prev, curr) => {
+              return Math.abs(curr.height - pipe.topHeight) < Math.abs(prev.height - pipe.topHeight) ? curr : prev;
+            });
+            playNote(closestNote.note);
+          }
+        }
 
         // Check collisions FIRST, before any other pipe processing
         const hasCollision = 
@@ -339,20 +424,28 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
         if (hasCollision) {
           gameOverRef.current = true;
           setGameOver(true);
-          return true; // Keep the pipe in the array but stop all other processing
+          stopGame();
+          return true;
         }
 
         // Only proceed with drawing and scoring if there's no collision
         if (!gameOver) {
           // Draw pipes
-          if (pipeImageRef.current) {
+          if (pipeImageRef.current && canvas) {
+            const aspectRatio = pipeImageRef.current.width / pipeImageRef.current.height;
+            const desiredHeight = pipe.width / aspectRatio;
+
             // Draw bottom pipe normally
             ctx.drawImage(
               pipeImageRef.current,
-              pipe.x,
-              pipe.topHeight + pipe.gap,
-              pipe.width,
-              canvas.height - (pipe.topHeight + pipe.gap)
+              0,                           // sourceX
+              0,                           // sourceY
+              pipeImageRef.current.width,  // sourceWidth
+              pipeImageRef.current.height * 0.7, // only use top 70%
+              pipe.x,                      // destX
+              pipe.topHeight + pipe.gap,   // destY
+              pipe.width,                  // destWidth
+              desiredHeight               // maintain aspect ratio
             );
 
             // Draw top pipe with rotation and mirroring
@@ -362,10 +455,14 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
             ctx.scale(-1, 1);
             ctx.drawImage(
               pipeImageRef.current,
-              -pipe.width/2,
-              -pipe.topHeight/2,
-              pipe.width,
-              pipe.topHeight
+              0,                           // sourceX
+              0,                           // sourceY
+              pipeImageRef.current.width,  // sourceWidth
+              pipeImageRef.current.height * 0.7, // only use top 70%
+              -pipe.width/2,              // destX
+              -pipe.topHeight/2,          // destY
+              pipe.width,                 // destWidth
+              desiredHeight              // maintain aspect ratio
             );
             ctx.restore();
           }
@@ -374,6 +471,8 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
           if (!gameOverRef.current && !pipe.passed && pipe.x + pipe.width < state.bird.x) {
             pipe.passed = true;
             setScore(prev => prev + 1);
+            state.bird.gravityEnabled = true; // Enable gravity after passing pipe
+            state.bird.velocity = 0; // Reset velocity for new fall
           }
         }
 
@@ -386,17 +485,36 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
         state.bird.y + state.bird.height > canvas.height
       ) {
         setGameOver(true);
+        stopGame();
         return; // Stop the game loop immediately
       }
 
-      // Draw bird
+      // Draw bird with gravity
       if (birdImageRef.current) {
+        // Apply gravity only if enabled
+        if (state.bird.gravityEnabled && gameStarted) {
+          state.bird.velocity += GRAVITY;
+          const safeGroundLevel = canvas.height - GROUND_HEIGHT - state.bird.height - SAFE_GROUND_MARGIN;
+          state.bird.y = Math.min(
+            safeGroundLevel,
+            state.bird.y + state.bird.velocity
+          );
+
+          // Check if bird hit the safe ground level
+          if (state.bird.y >= safeGroundLevel) {
+            state.bird.velocity = 0;
+            state.bird.y = safeGroundLevel;
+          }
+        }
+
         ctx.save();
         ctx.translate(
           state.bird.x + state.bird.width / 2,
           state.bird.y + state.bird.height / 2
         );
-        ctx.rotate(state.bird.velocity * 0.02);
+        // Rotate bird based on velocity only when gravity is enabled
+        const rotation = state.bird.gravityEnabled ? Math.min(Math.max(state.bird.velocity * 0.05, -0.5), 0.5) : 0;
+        ctx.rotate(rotation);
         ctx.drawImage(
           birdImageRef.current,
           -state.bird.width / 2,
@@ -408,23 +526,121 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
       }
 
       // Only continue the game loop if not game over
-      if (!gameOver) {
-        requestAnimationFrame(gameLoop);
+      if (!gameOver && !victory) {
+        animationFrameId = requestAnimationFrame(gameLoop);
       }
     };
 
     // Start the game loop
-    const animationFrame = requestAnimationFrame(gameLoop);
+    gameLoop();
     
     // Cleanup
     return () => {
-      if (animationFrame) {
-        cancelAnimationFrame(animationFrame);
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [gameStarted, gameOver, imagesLoaded, gameSpeed]);
+  }, [gameStarted, gameOver, victory, imagesLoaded, gameSpeed]);
 
-  // Modify the pipe generation function
+  useEffect(() => {
+    // Only create AudioContext when game starts after user interaction
+    if (typeof window !== 'undefined' && !audioContextRef.current && gameStarted) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      // Load audio files immediately after creating context
+      loadAudio();
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        try {
+          audioContextRef.current.close();
+        } catch (e) {
+          console.error('Error closing AudioContext:', e);
+        }
+      }
+    };
+  }, [gameStarted]); // Add gameStarted as dependency
+
+  const loadAudio = async () => {
+    const context = audioContextRef.current;
+    if (!context || context.state === 'closed') return;
+    
+    for (const { note } of NOTE_LINES) {
+      try {
+        const response = await fetch(`/assets/notes/${note}.wav`);
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await context.decodeAudioData(arrayBuffer);
+        audioBuffers.current[note] = audioBuffer;
+      } catch (error) {
+        console.error(`Error loading audio for note ${note}:`, error);
+      }
+    }
+  };
+
+  const playNote = useCallback((note: string) => {
+    const context = audioContextRef.current;
+    if (!context || context.state !== 'running' || !audioBuffers.current[note]) return;
+    
+    // Stop previous note if it's playing
+    if (audioSourceRef.current) {
+      try {
+        audioSourceRef.current.stop();
+      } catch (e) {
+        // Ignore if already stopped
+      }
+    }
+    
+    try {
+      const source = context.createBufferSource();
+      source.buffer = audioBuffers.current[note];
+      source.connect(context.destination);
+      source.start();
+      audioSourceRef.current = source;
+      
+      // Stop the note after 2 seconds
+      setTimeout(() => {
+        try {
+          source.stop();
+        } catch (e) {
+          // Ignore if already stopped
+        }
+      }, 2000); // 2000ms duration (2 seconds)
+    } catch (e) {
+      console.error('Error playing note:', e);
+    }
+  }, []);
+
+  // Add function to stop all audio and game processes
+  const stopGame = useCallback(() => {
+    // Stop audio
+    if (audioSourceRef.current) {
+      try {
+        audioSourceRef.current.stop();
+      } catch (e) {
+        // Ignore if already stopped
+      }
+      audioSourceRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.suspend();
+    }
+    // Stop all movement
+    setGameSpeed(0);
+    if (gameStateRef.current) {
+      gameStateRef.current.bird.velocity = 0;
+      gameStateRef.current.bird.gravityEnabled = false;
+    }
+  }, []);
+
+  // Add effect to handle game over state
+  useEffect(() => {
+    if (gameOver || victory) {
+      stopGame();
+    }
+  }, [gameOver, victory, stopGame]);
+
+  // Modify the addPipe function to use the song patterns
   const addPipe = () => {
     const state = gameStateRef.current;
     if (!canvasRef.current) return;
@@ -432,14 +648,18 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
     let topHeight;
     
     if (pipeCountRef.current < PIPE_HEIGHTS.length) {
-      // For first 8 pipes, use sequential heights from highest to lowest
-      const reverseIndex = PIPE_HEIGHTS.length - 1 - pipeCountRef.current;
-      topHeight = PIPE_HEIGHTS[reverseIndex];
+      // First 8 pipes, use sequential heights from Do3 to Do4
+      topHeight = PIPE_HEIGHTS[pipeCountRef.current];
       pipeCountRef.current++;
     } else {
-      // After first 8 pipes, use random heights
-      const randomIndex = Math.floor(Math.random() * PIPE_HEIGHTS.length);
-      topHeight = PIPE_HEIGHTS[randomIndex];
+      // After first 8 pipes, use song patterns
+      const songIndex = pipeCountRef.current - PIPE_HEIGHTS.length;
+      if (songIndex >= ALL_SONGS.length) {
+        setVictory(true);
+        return;
+      }
+      topHeight = ALL_SONGS[songIndex];
+      pipeCountRef.current++;
     }
 
     const newPipe = {
@@ -456,14 +676,14 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
   // Update the key press handler
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      if (e.code === 'KeyR' && gameOver && micStarted) {
+      if (e.code === 'KeyR' && (gameOver || victory) && micStarted) {
         onReset();
       }
     };
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [gameOver, micStarted, onReset]);
+  }, [gameOver, victory, micStarted, onReset]);
 
   return (
     <div className="flex items-center justify-center bg-black bg-opacity-50">
@@ -495,18 +715,12 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
                   >
                     {note}
                   </span>
-                  <span 
-                    className="text-xs"
-                    style={{ color }}
-                  >
-                    {Math.round(freq)}Hz
-                  </span>
                 </div>
               </div>
             );
           })}
           {/* Current pitch indicator */}
-          {currentPitch && gameStarted && !gameOver && (
+          {currentPitch && gameStarted && !gameOver && !victory && (
             <div 
               className="absolute right-0 w-8 h-8 flex items-center"
               style={{ 
@@ -551,14 +765,14 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
             </div>
           )}
 
-          {imagesLoaded && !micStarted && !gameOver && (
+          {imagesLoaded && !micStarted && !gameOver && !victory && (
             <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
               <div className="text-center">
                 <div className="text-4xl font-bold text-white mb-4">
                   Ptitch Perfect
                 </div>
                 <div className="text-xl text-white mb-2">
-               {   `Click "Start Listening" below to plays`}
+                  Click &ldquo;Start Listening&rdquo; below to play
                 </div>
                 <div className="text-sm text-gray-300">
                   Control with your voice: higher pitch = up, lower pitch = down
@@ -567,15 +781,36 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
             </div>
           )}
 
-          {imagesLoaded && gameOver && (
+          {imagesLoaded && (gameOver || victory) && (
             <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
               <div className="text-center">
-                <div className="text-4xl font-bold text-white mb-4">
-                  Game Over!
-                </div>
-                <div className="text-2xl text-white mb-4">
-                  Score: {score}
-                </div>
+                {victory ? (
+                  <>
+                    <div className="text-4xl font-bold text-green-400 mb-4">
+                      Congratulations!
+                    </div>
+                    <div className="text-2xl text-white mb-4">
+                      You&apos;ve mastered all the songs!
+                    </div>
+                    <div className="text-xl text-white mb-6">
+                      <div className="mb-2">Kuža pazi</div>
+                      <div className="mb-2">Marko skače</div>
+                      <div className="mb-2">Čuk se je oženil</div>
+                    </div>
+                    <div className="text-xl text-white mb-4">
+                      Final Score: {score}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-4xl font-bold text-white mb-4">
+                      Game Over!
+                    </div>
+                    <div className="text-2xl text-white mb-4">
+                      Score: {score}
+                    </div>
+                  </>
+                )}
                 <div className="text-xl text-white">
                   Press R to restart
                 </div>
