@@ -804,21 +804,21 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
         currentSongName = 'Kuža pazi';
         topHeight = KUZA_PAZI[remainingIndex] as PipeHeight;
         // Increase speed for first song
-        setGameSpeed(INITIAL_GAME_SPEED * 1.1);
+        setGameSpeed(INITIAL_GAME_SPEED * 1.2);
       } else {
         remainingIndex -= KUZA_PAZI.length;
         if (remainingIndex < MARKO_SKACE.length) {
           currentSongName = 'Marko skače';
           topHeight = MARKO_SKACE[remainingIndex] as PipeHeight;
           // Increase speed for second song
-          setGameSpeed(INITIAL_GAME_SPEED * 1.2);
+          setGameSpeed(INITIAL_GAME_SPEED * 1.4);
         } else {
           remainingIndex -= MARKO_SKACE.length;
           if (remainingIndex < CUK_SE_JE_OZENIL.length) {
             currentSongName = 'Čuk se je oženil';
             topHeight = CUK_SE_JE_OZENIL[remainingIndex] as PipeHeight;
             // Increase speed for third song
-            setGameSpeed(INITIAL_GAME_SPEED * 1.4);
+            setGameSpeed(INITIAL_GAME_SPEED * 1.6);
           } else {
             setVictory(true);
             return;
