@@ -4,10 +4,12 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 
 interface Pipe {
   x: number
-  topHeight: number
+  topHeight: PipeHeight
   gap: number
   width: number
   passed: boolean
+  index: number
+  lyric: string
 }
 
 interface GameState {
@@ -32,7 +34,7 @@ const JUMP_FORCE = 5
 const INITIAL_GAME_SPEED = 3
 const PIPE_GAP = 100;
 const GROUND_HEIGHT = 2;
-const PIPE_SPACING = 800;
+const PIPE_SPACING = 1000;
 const SAFE_GROUND_MARGIN = 3; // Pixels above ground where bird stops falling
 
 // Define songs using pipe heights that correspond to notes
@@ -91,6 +93,8 @@ const NOTE_LINES = [
 
 const PIPE_HEIGHTS = [416, 363, 310, 257, 204, 151, 98, 45];
 
+type PipeHeight = 416 | 363 | 310 | 257 | 204 | 151 | 98 | 45;
+
 const freqToY = (freq: number, canvasHeight: number): number => {
   // Find the matching note line
   const noteLine = NOTE_LINES.find(line => line.freq === freq);
@@ -104,6 +108,30 @@ const freqToY = (freq: number, canvasHeight: number): number => {
   const normalizedFreq = (freq - minFreq) / (maxFreq - minFreq);
   return 482 - (normalizedFreq * (482 - 108)); // Interpolate from bottom to top
 };
+
+type SongName = 'Kuža pazi' | 'Marko skače' | 'Čuk se je oženil' | 'Do3-Do4 Scale';
+
+const SONG_LYRICS: Record<SongName, string[]> = {
+  'Kuža pazi': [
+    'Ku', 'ža', 'pa', 'zi', 'z rep', 'kom', 'mi', 'ga', 'vsta', 'ne', 'če', 'že', 'ta', 'čko', 'da', 'hi', 'šo', 'ču', 'va,', 'je', 'zno', 'la', 'ja,', 'če', 'ni', 'ko', 'gar', 'ni', 'do', 'ma.'
+  ],
+  'Marko skače': [
+    'Ma', 'rko', 'ska', 'če,', 'Ma', 'rko', 'ska', 'če', 'po', 'ze', 'le', 'ni', 'tra', 'ti.',
+    'Aj,', 'aj,', 'aj,', 'aj,', 'aj,', 'po', 'ze', 'le', 'ni', 'tra', 'ti,',
+    'Aj,', 'aj,', 'aj,', 'aj,', 'aj,', 'po', 'ze', 'le', 'ni', 'tra', 'ti.'
+  ],
+  'Čuk se je oženil': [
+    'Čuk', 'se', 'je', 'o', 'že', 'nil,', 'tra', 'la', 'la,',
+    'tra', 'la', 'la,', 'so', 'va', 'ga', 'je', 'vze', 'la,',
+    'hop', 'sa', 'sa,', 'so', 'va', 'ga', 'je', 'vze', 'la,', 'hop', 'sa', 'sa.'
+  ],
+  'Do3-Do4 Scale': [
+    'Do', 'Re', 'Mi', 'Fa', 'Sol', 'La', 'Si', 'Do',
+
+  ]
+};
+
+const SONG_SEQUENCE: SongName[] = ['Do3-Do4 Scale', 'Kuža pazi', 'Marko skače', 'Čuk se je oženil'];
 
 const PtitchPerfect: React.FC<PtitchPerfectProps> = ({ 
   currentPitch,
@@ -146,6 +174,19 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
 
   // Add key state to force re-render
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const [currentSongIndex, setCurrentSongIndex] = useState(0);
+  const currentSong = SONG_SEQUENCE[currentSongIndex];
+
+  const handleSongCompletion = () => {
+    setCurrentSongIndex((prevIndex) => (prevIndex + 1) % SONG_SEQUENCE.length);
+  };
+
+  useEffect(() => {
+    if (gameOver) {
+      handleSongCompletion();
+    }
+  }, [gameOver]);
 
   useEffect(() => {
     // Load images
@@ -352,6 +393,13 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
               desiredHeight              // maintain aspect ratio
             );
             ctx.restore();
+
+            // Draw lyric inside the top note
+            if (gameStarted) {
+              ctx.font = 'bold 26px Arial';
+              ctx.fillStyle = 'lightblue';
+              ctx.fillText(pipe.lyric, pipe.x + pipe.width / 2, pipe.topHeight - pipe.gap / 4);
+            }
           }
         });
 
@@ -404,13 +452,26 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
         const canvas = canvasRef.current;
         if (canvas) {
           // Check pipe's position relative to canvas width
-          if (pipe.x == 8.7*canvas.width / 10) {
-            console.log('Pipe position:', pipe.x, 'Target position:', canvas.width / 4);
-            // Find the note line closest to the pipe's top height
-            const closestNote = NOTE_LINES.reduce((prev, curr) => {
-              return Math.abs(curr.height - pipe.topHeight) < Math.abs(prev.height - pipe.topHeight) ? curr : prev;
-            });
-            playNote(closestNote.note);
+          // Use a small range instead of exact position
+          const triggerPosition = 8.7 * canvas.width / 10;
+          if (pipe.x <= triggerPosition && pipe.x > triggerPosition - gameSpeed) {
+            // Map pipe heights to notes
+            const heightToNote: Record<PipeHeight, string> = {
+              416: 'Do3',
+              363: 'Re3',
+              310: 'Mi3',
+              257: 'Fa3',
+              204: 'Sol3',
+              151: 'La3',
+              98: 'Si3',
+              45: 'Do4'
+            };
+            
+            const noteToPlay = heightToNote[pipe.topHeight];
+            if (noteToPlay) {
+              console.log('Playing note:', noteToPlay, 'at position:', pipe.x);
+              playNote(noteToPlay);
+            }
           }
         }
 
@@ -430,54 +491,58 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
 
         // Only proceed with drawing and scoring if there's no collision
         if (!gameOver) {
-          // Draw pipes
-          if (pipeImageRef.current && canvas) {
-            const aspectRatio = pipeImageRef.current.width / pipeImageRef.current.height;
-            const desiredHeight = pipe.width / aspectRatio;
+        // Draw pipes
+        if (pipeImageRef.current && canvas) {
+          const aspectRatio = pipeImageRef.current.width / pipeImageRef.current.height;
+          const desiredHeight = pipe.width / aspectRatio;
 
-            // Draw bottom pipe normally
-            ctx.drawImage(
-              pipeImageRef.current,
-              0,                           // sourceX
-              0,                           // sourceY
-              pipeImageRef.current.width,  // sourceWidth
-              pipeImageRef.current.height * 0.7, // only use top 70%
-              pipe.x,                      // destX
-              pipe.topHeight + pipe.gap,   // destY
-              pipe.width,                  // destWidth
-              desiredHeight               // maintain aspect ratio
-            );
+          // Draw bottom pipe normally
+          ctx.drawImage(
+            pipeImageRef.current,
+            0,                           // sourceX
+            0,                           // sourceY
+            pipeImageRef.current.width,  // sourceWidth
+            pipeImageRef.current.height * 0.7, // only use top 70%
+            pipe.x,                      // destX
+            pipe.topHeight + pipe.gap,   // destY
+            pipe.width,                  // destWidth
+            desiredHeight               // maintain aspect ratio
+          );
 
-            // Draw top pipe with rotation and mirroring
-            ctx.save();
-            ctx.translate(pipe.x + pipe.width/2, pipe.topHeight/2);
-            ctx.rotate(Math.PI);
-            ctx.scale(-1, 1);
-            ctx.drawImage(
-              pipeImageRef.current,
-              0,                           // sourceX
-              0,                           // sourceY
-              pipeImageRef.current.width,  // sourceWidth
-              pipeImageRef.current.height * 0.7, // only use top 70%
-              -pipe.width/2,              // destX
-              -pipe.topHeight/2,          // destY
-              pipe.width,                 // destWidth
-              desiredHeight              // maintain aspect ratio
-            );
-            ctx.restore();
-          }
+          // Draw top pipe with rotation and mirroring
+          ctx.save();
+          ctx.translate(pipe.x + pipe.width/2, pipe.topHeight/2);
+          ctx.rotate(Math.PI);
+          ctx.scale(-1, 1);
+          ctx.drawImage(
+            pipeImageRef.current,
+            0,                           // sourceX
+            0,                           // sourceY
+            pipeImageRef.current.width,  // sourceWidth
+            pipeImageRef.current.height * 0.7, // only use top 70%
+            -pipe.width/2,              // destX
+            -pipe.topHeight/2,          // destY
+            pipe.width,                 // destWidth
+            desiredHeight              // maintain aspect ratio
+          );
+          ctx.restore();
 
-          // Update score
-          if (!gameOverRef.current && !pipe.passed && pipe.x + pipe.width < state.bird.x) {
-            pipe.passed = true;
-            setScore(prev => prev + 1);
-            state.bird.gravityEnabled = true; // Enable gravity after passing pipe
-            state.bird.velocity = 0; // Reset velocity for new fall
+          // Draw lyric inside the top note
+          ctx.font = 'bold 26px Arial';
+          ctx.fillStyle = 'lightblue';
+          ctx.fillText(pipe.lyric, pipe.x + pipe.width / 3, pipe.topHeight - pipe.gap / 4);
+
+        // Update score
+        if (!gameOverRef.current && !pipe.passed && pipe.x + pipe.width < state.bird.x) {
+          pipe.passed = true;
+          setScore(prev => prev + 1);
+          state.bird.gravityEnabled = true; // Enable gravity after passing pipe
+          state.bird.velocity = 0; // Reset velocity for new fall
           }
         }
 
         return pipe.x > -pipe.width;
-      });
+    }});
 
       // Check floor and ceiling collisions
       if (
@@ -564,23 +629,83 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
 
   const loadAudio = async () => {
     const context = audioContextRef.current;
-    if (!context || context.state === 'closed') return;
+    if (!context || context.state === 'closed') {
+      console.error('AudioContext not available or closed');
+      return;
+    }
+    
+    console.log('Starting to load audio files...');
+    
+    // First, verify Si3 is in NOTE_LINES
+    const si3Note = NOTE_LINES.find(note => note.note === 'Si3');
+    console.log('Si3 note configuration:', si3Note);
     
     for (const { note } of NOTE_LINES) {
       try {
-        const response = await fetch(`/assets/notes/${note}.wav`);
+        const url = `/assets/notes/${note}.wav`;
+        console.log(`Loading ${note} from ${url}`);
+        
+        const response = await fetch(url);
+        if (!response.ok) {
+          console.error(`Failed to load ${note}:`, response.status, response.statusText);
+          continue;
+        }
+        
         const arrayBuffer = await response.arrayBuffer();
-        const audioBuffer = await context.decodeAudioData(arrayBuffer);
-        audioBuffers.current[note] = audioBuffer;
+        console.log(`${note} file loaded, size:`, arrayBuffer.byteLength);
+        
+        try {
+          const audioBuffer = await context.decodeAudioData(arrayBuffer);
+          console.log(`${note} decoded successfully:`, {
+            duration: audioBuffer.duration,
+            numberOfChannels: audioBuffer.numberOfChannels,
+            sampleRate: audioBuffer.sampleRate
+          });
+          
+          audioBuffers.current[note] = audioBuffer;
+          console.log(`${note} stored in audioBuffers`);
+        } catch (decodeError) {
+          console.error(`Failed to decode ${note}:`, decodeError);
+        }
       } catch (error) {
-        console.error(`Error loading audio for note ${note}:`, error);
+        console.error(`Error loading ${note}:`, error);
       }
+    }
+    
+    // Verify all notes were loaded
+    const loadedNotes = Object.keys(audioBuffers.current);
+    console.log('Loaded notes:', loadedNotes);
+    const missingNotes = NOTE_LINES.map(nl => nl.note).filter(note => !loadedNotes.includes(note));
+    if (missingNotes.length > 0) {
+      console.error('Missing notes:', missingNotes);
     }
   };
 
+  const handleCorrectNote = useCallback(() => {
+    console.log('Correct note!');
+  }, []);
+
+  const handleWrongNote = useCallback(() => {
+    console.log('Wrong note!');
+  }, []);
+
+  const onNote = useCallback((note: string) => {
+    if (!gameStarted || !currentPitch) return;
+    
+    // Only process notes from microphone input
+    if (note === currentPitch.toString()) {
+      handleCorrectNote();
+    } else {
+      handleWrongNote();
+    }
+  }, [gameStarted, currentPitch, handleCorrectNote, handleWrongNote]);
+
   const playNote = useCallback((note: string) => {
     const context = audioContextRef.current;
-    if (!context || context.state !== 'running' || !audioBuffers.current[note]) return;
+    if (!context || context.state !== 'running' || !audioBuffers.current[note]) {
+      console.log('Cannot play note:', note, 'Context:', context?.state, 'Buffer exists:', !!audioBuffers.current[note]);
+      return;
+    }
     
     // Stop previous note if it's playing
     if (audioSourceRef.current) {
@@ -593,19 +718,31 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
     
     try {
       const source = context.createBufferSource();
+      const gainNode = context.createGain();
+      
+      // Set initial gain higher
+      gainNode.gain.setValueAtTime(0.1, context.currentTime);
+      
       source.buffer = audioBuffers.current[note];
-      source.connect(context.destination);
+      source.connect(gainNode);
+      gainNode.connect(context.destination);
+      
       source.start();
       audioSourceRef.current = source;
       
-      // Stop the note after 2 seconds
+      // Longer duration and slower fade out
+      const fadeStart = context.currentTime + 1.5;
+      const stopTime = context.currentTime + 2.5;
+      gainNode.gain.setValueAtTime(0.1, fadeStart);
+      gainNode.gain.linearRampToValueAtTime(0, stopTime);
+      
       setTimeout(() => {
         try {
           source.stop();
         } catch (e) {
           // Ignore if already stopped
         }
-      }, 2000); // 2000ms duration (2 seconds)
+      }, 2500);
     } catch (e) {
       console.error('Error playing note:', e);
     }
@@ -640,26 +777,57 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
     }
   }, [gameOver, victory, stopGame]);
 
-  // Modify the addPipe function to use the song patterns
   const addPipe = () => {
     const state = gameStateRef.current;
     if (!canvasRef.current) return;
 
-    let topHeight;
+    let topHeight: PipeHeight;
+    let currentLyric = '';
     
     if (pipeCountRef.current < PIPE_HEIGHTS.length) {
       // First 8 pipes, use sequential heights from Do3 to Do4
-      topHeight = PIPE_HEIGHTS[pipeCountRef.current];
-      pipeCountRef.current++;
+      topHeight = PIPE_HEIGHTS[pipeCountRef.current] as PipeHeight;
+      currentLyric = SONG_LYRICS['Do3-Do4 Scale'][pipeCountRef.current];
     } else {
       // After first 8 pipes, use song patterns
-      const songIndex = pipeCountRef.current - PIPE_HEIGHTS.length;
-      if (songIndex >= ALL_SONGS.length) {
-        setVictory(true);
-        return;
+      const songPatterns = {
+        'Kuža pazi': KUZA_PAZI,
+        'Marko skače': MARKO_SKACE,
+        'Čuk se je oženil': CUK_SE_JE_OZENIL
+      };
+      
+      // Calculate which song we're on and the index within that song
+      let remainingIndex = pipeCountRef.current - PIPE_HEIGHTS.length;
+      let currentSongName: SongName = 'Kuža pazi';
+      
+      if (remainingIndex < KUZA_PAZI.length) {
+        currentSongName = 'Kuža pazi';
+        topHeight = KUZA_PAZI[remainingIndex] as PipeHeight;
+        // Increase speed for first song
+        setGameSpeed(INITIAL_GAME_SPEED * 1.1);
+      } else {
+        remainingIndex -= KUZA_PAZI.length;
+        if (remainingIndex < MARKO_SKACE.length) {
+          currentSongName = 'Marko skače';
+          topHeight = MARKO_SKACE[remainingIndex] as PipeHeight;
+          // Increase speed for second song
+          setGameSpeed(INITIAL_GAME_SPEED * 1.2);
+        } else {
+          remainingIndex -= MARKO_SKACE.length;
+          if (remainingIndex < CUK_SE_JE_OZENIL.length) {
+            currentSongName = 'Čuk se je oženil';
+            topHeight = CUK_SE_JE_OZENIL[remainingIndex] as PipeHeight;
+            // Increase speed for third song
+            setGameSpeed(INITIAL_GAME_SPEED * 1.4);
+          } else {
+            setVictory(true);
+            return;
+          }
+        }
       }
-      topHeight = ALL_SONGS[songIndex];
-      pipeCountRef.current++;
+      
+      // Get the correct lyric for the current song
+      currentLyric = SONG_LYRICS[currentSongName][remainingIndex];
     }
 
     const newPipe = {
@@ -667,10 +835,13 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
       width: PIPE_WIDTH,
       topHeight: topHeight,
       gap: PIPE_GAP,
-      passed: false
+      passed: false,
+      index: pipeCountRef.current,
+      lyric: currentLyric
     };
 
     state.pipes.push(newPipe);
+    pipeCountRef.current++;
   };
 
   // Update the key press handler
@@ -684,6 +855,11 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [gameOver, victory, micStarted, onReset]);
+
+  function getLyricForPipe(songName: SongName, pipeIndex: number): string {
+    const lyrics = SONG_LYRICS[songName];
+    return lyrics ? lyrics[pipeIndex % lyrics.length] : '';
+  }
 
   return (
     <div className="flex items-center justify-center bg-black bg-opacity-50">

@@ -18,7 +18,6 @@ const acf = (values: number[] | Float32Array) => {
 const findMax = (c: number[], minPeriod: number, maxPeriod: number) => {
   let max = 0;
   let maxIndex = -1;
-  // Only look for peaks in the human voice range
   for (let i = minPeriod; i < maxPeriod; i++) {
     if (c[i] > max) {
       max = c[i];
@@ -39,7 +38,6 @@ const parabolicInterpolation = (c: number[], i: number) => {
 };
 
 const calculatePitch = (buf: Float32Array, options: { sampleRate: number }) => {
-  // Update maxFreq to slightly above Do4 to ensure it's detected
   const minFreq = 130.81;  // Do3
   const maxFreq = 265.0;   // Slightly above Do4 (261.63 Hz)
   const minPeriod = Math.floor(options.sampleRate / maxFreq);
@@ -50,7 +48,6 @@ const calculatePitch = (buf: Float32Array, options: { sampleRate: number }) => {
   
   if (maxIndex <= 0) return null;
   
-  // Add amplitude threshold to avoid noise
   const threshold = 0.2;
   const normalizedMax = max / c[0];
   if (normalizedMax < threshold) return null;
@@ -58,13 +55,11 @@ const calculatePitch = (buf: Float32Array, options: { sampleRate: number }) => {
   const interpolatedIndex = parabolicInterpolation(c, maxIndex);
   const frequency = options.sampleRate / interpolatedIndex;
   
-  // Return null if outside human voice range
   if (frequency < minFreq || frequency > maxFreq) return null;
   
   return frequency;
 };
 
-// Add prop type for pitch updates
 interface MicrophoneListenerProps {
   onPitchChange: (pitch: number | null) => void;
   onListeningChange: (isListening: boolean) => void;
@@ -81,13 +76,12 @@ const MicrophoneListener: React.FC<MicrophoneListenerProps> = ({
   const requestRef = useRef<number | null>(null);
   const pitchHistory = useRef<number[]>([]);
   const [currentDb, setCurrentDb] = useState<number | null>(null);
-  const thresholdDb = -25; // Increased from -50 to -35 for better sensitivity
+  const thresholdDb = -15;
 
   const updatePitch = (analyser: AnalyserNode, options: { sampleRate: number }) => {
     const buf = new Float32Array(analyser.fftSize);
     analyser.getFloatTimeDomainData(buf);
 
-    // Calculate RMS (Root Mean Square) to get the sound level in dB
     const rms = Math.sqrt(buf.reduce((sum, value) => sum + value * value, 0) / buf.length);
     const db = 20 * Math.log10(rms);
     setCurrentDb(Math.round(db));
@@ -96,17 +90,13 @@ const MicrophoneListener: React.FC<MicrophoneListenerProps> = ({
       const detectedPitch = calculatePitch(buf, options);
       
       if (detectedPitch) {
-        // Add to history
         pitchHistory.current.push(detectedPitch);
-        // Keep only last 5 values 
         if (pitchHistory.current.length > 5) {
           pitchHistory.current.shift();
         }
         
-        // Use median of last 5 values to smooth out fluctuations
         const sortedPitches = [...pitchHistory.current].sort((a, b) => a - b);
         const medianPitch = sortedPitches[Math.floor(sortedPitches.length / 2)];
-        
         setPitch(Math.round(medianPitch));
       } else {
         pitchHistory.current = [];
@@ -176,11 +166,9 @@ const MicrophoneListener: React.FC<MicrophoneListenerProps> = ({
   }, [analyser]);
 
   useEffect(() => {
-    // Notify parent component whenever pitch changes
     onPitchChange(pitch);
   }, [pitch, onPitchChange]);
 
-  // Get vocal range classification
   const getVocalRange = (frequency: number): string => {
     if (frequency < 160) return 'Bass';
     if (frequency < 240) return 'Tenor';
@@ -188,20 +176,30 @@ const MicrophoneListener: React.FC<MicrophoneListenerProps> = ({
     return 'Soprano';
   };
 
-  // Convert Hz to solfège notation with octave
   const getNoteName = (frequency: number): string | null => {
-    const noteNames = ['Do', 'Do#', 'Re', 'Re#', 'Mi', 'Fa', 'Fa#', 'Sol', 'Sol#', 'La', 'La#', 'Si'];
-    
-    // Calculate note index using frequency
-    const noteNumber = 12 * (Math.log2(frequency / 130.81)); // 130.81 is Do3
-    const noteIndex = Math.round(noteNumber) % 12;
-    
-    // If frequency is closer to Do4 (261.63 Hz) than Do3 (130.81 Hz)
-    if (frequency >= 246.94) { // Si3 frequency
-      return `${noteNames[noteIndex]}4`;
-    } else {
-      return `${noteNames[noteIndex]}3`;
+    const noteFrequencies = [
+      { note: 'Do3', freq: 130.81 },
+      { note: 'Re3', freq: 146.83 },
+      { note: 'Mi3', freq: 164.81 },
+      { note: 'Fa3', freq: 174.61 },
+      { note: 'Sol3', freq: 196.00 },
+      { note: 'La3', freq: 220.00 },
+      { note: 'Si3', freq: 246.94 },
+      { note: 'Do4', freq: 261.63 }
+    ];
+
+    let closestNote = noteFrequencies[0];
+    let minDiff = Math.abs(frequency - noteFrequencies[0].freq);
+
+    for (const note of noteFrequencies) {
+      const diff = Math.abs(frequency - note.freq);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestNote = note;
+      }
     }
+
+    return closestNote.note;
   };
 
   return (
