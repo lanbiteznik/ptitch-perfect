@@ -169,7 +169,7 @@ const PtitchPerfect: React.FC<PtitchPerfectProps> = ({
 
     birdImageRef.current.src = 'assets/images/Bird2.png'
     pipeImageRef.current.src = 'assets/images/Note.png'
-    backgroundImageRef.current.src = 'assets/images/scale.png'
+    backgroundImageRef.current.src = 'assets/images/Scale.png'
   }, [])
 
   const resetGame = useCallback(() => {
